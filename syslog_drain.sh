@@ -1,7 +1,9 @@
 #!/bin/bash -e
 
 # This script sets up end to end log flow through logplex (running in docker) and ultimately to papertrail.
-# Create a free papertrail account and obtain the Host,Port combinations for our syslog endpoint. Make sure you have a local papertrail CLI.
+# - Create a free papertrail account and obtain the Host,Port combinations for our syslog endpoint.
+# - Install papertrail-cli
+# - Install jq
 # Run the script as:
 #    PORT=<papetrail-port> ./syslog_drain.sh
 
@@ -11,6 +13,7 @@ PORT="${PORT:-9999}"
 source logplex.env
 IP_ADDRESS=`(type boot2docker >/dev/null 2>&1 && boot2docker ip) || 127.0.0.1`
 LOGPLEX_URL="http://${IP_ADDRESS}:8001"
+LOGPLEX_LOGS_URL="http://${IP_ADDRESS}:8601"
 
 # Ensure logplex health
 set -x
@@ -18,15 +21,15 @@ curl -H "Authorization: Basic ${LOGPLEX_AUTH_KEY}" -X GET "${LOGPLEX_URL}/health
 set +x
 echo
 
-# Create a logplex channell
+# Create a logplex channel
 echo "Creating logplex channel 'app'"
-curl -H "Authorization: Basic ${LOGPLEX_AUTH_KEY}" -d '{"tokens": ["app"]}' "${LOGPLEX_URL}/channels"
+curl -H "Authorization: Basic ${LOGPLEX_AUTH_KEY}" -d '{"tokens": ["app"]}' "${LOGPLEX_URL}/channels" | tee /tmp/logplex-channel
 echo
+CHANNEL_ID=$(jq -r '.channel_id' < /tmp/logplex-channel)
+CHANNEL_TOKEN=$(jq -r '.tokens.app' < /tmp/logplex-channel)
+echo "Channel token is: ${CHANNEL_TOKEN}"
 
-# TODO:
-LOGPLEX_TOKEN=todo
-
-# Install spew and log-shuttle
+# Install spew and log-shuttle (into ./tmp)
 echo "Installing spew and log-shuttle to ./tmp"
 which go > /dev/null || (echo "ERROR: Go is not installed"; exit 2)
 GOPATH=`pwd`/tmp/go && \
@@ -36,7 +39,9 @@ PATH=`pwd`/tmp/go/bin:$PATH
 
 # Run spew and pipe to log-shuttle, and then to logplex channel
 echo "Running spew and log-shuttle"
-DURATION=1s spew | log-shuttle -logplex-token=${LOGPLEX_TOKEN} -logs-url="${LOGPLEX_URL}/logs"
+set -x
+DURATION=1s spew 2>&1 | log-shuttle -logplex-token=${CHANNEL_TOKEN} -logs-url="${LOGPLEX_LOGS_URL}/logs"
+set +x
 
 # TODO:
 # - verify using tail session
