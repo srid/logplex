@@ -7,7 +7,7 @@
 # Run the script as:
 #    PORT=<papetrail-port> ./syslog_drain.sh
 
-HOST="${HOST:-logs3.papertrail.com}"
+HOST="${HOST:-logs3.papertrailapp.com}"
 PORT="${PORT:-9999}"
 
 source logplex.env
@@ -29,18 +29,26 @@ CHANNEL_ID=$(jq -r '.channel_id' < /tmp/logplex-channel)
 CHANNEL_TOKEN=$(jq -r '.tokens.app' < /tmp/logplex-channel)
 echo "Channel token is: ${CHANNEL_TOKEN}"
 
+# Drain the channel to Papertrail
+echo "Draining to Papertrail"
+curl -H "Authorization: Basic ${LOGPLEX_AUTH_KEY}" -d "{\"url\": \"syslog://${HOST}:${PORT}/\"}" "${LOGPLEX_URL}/v2/channels/${CHANNEL_ID}/drains" | tee /tmp/logplex-drain
+
 # Install spew and log-shuttle (into ./tmp)
 echo "Installing spew and log-shuttle to ./tmp"
 which go > /dev/null || (echo "ERROR: Go is not installed"; exit 2)
 GOPATH=`pwd`/tmp/go && \
     go get github.com/freeformz/spew && \
-    go get github.com/heroku/log-shuttle/...
+    go get github.com/heroku/log-shuttle/... && \
+    go get github.com/ddollar/forego
 PATH=`pwd`/tmp/go/bin:$PATH
 
 # Run spew and pipe to log-shuttle, and then to logplex channel
-echo "Running spew and log-shuttle"
+echo "Running spew and log-shuttle (in background)"
+cat > tmp/Procfile <<EOF
+spew: DURATION=1s spew 2>&1 | log-shuttle -logplex-token=${CHANNEL_TOKEN} -logs-url="${LOGPLEX_LOGS_URL}/logs"
+EOF
 set -x
-DURATION=1s spew 2>&1 | log-shuttle -logplex-token=${CHANNEL_TOKEN} -logs-url="${LOGPLEX_LOGS_URL}/logs"
+forego start -f tmp/Procfile
 set +x
 
 # TODO:
