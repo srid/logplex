@@ -11,7 +11,7 @@
 HOST="${HOST:-logs3.papertrailapp.com}"
 PORT="${PORT:-9999}"
 
-PROTOCOL="syslog"
+PROTOCOL="${PROTOCOL:-syslog}"
 
 source logplex.env
 IP_ADDRESS=`(type boot2docker >/dev/null 2>&1 && boot2docker ip) || 127.0.0.1`
@@ -35,6 +35,9 @@ echo "Channel token is: ${CHANNEL_TOKEN}"
 # Drain the channel to Papertrail
 echo "Draining to Papertrail"
 curl -H "Authorization: Basic ${LOGPLEX_AUTH_KEY}" -d "{\"url\": \"${PROTOCOL}://${HOST}:${PORT}/\"}" "${LOGPLEX_URL}/v2/channels/${CHANNEL_ID}/drains" | tee /tmp/logplex-drain
+echo
+DRAIN_TOKEN=$(jq -r '.token' < /tmp/logplex-drain)
+echo "Drain token is: ${DRAIN_TOKEN}"
 
 # Install spew and log-shuttle (into ./tmp)
 echo "Installing spew and log-shuttle to ./tmp"
@@ -49,7 +52,7 @@ PATH=`pwd`/tmp/go/bin:$PATH
 echo "Running spew and log-shuttle (in background)"
 cat > tmp/Procfile <<EOF
 spew: DURATION=1s spew 2>&1 | log-shuttle -logplex-token=${CHANNEL_TOKEN} -logs-url="${LOGPLEX_LOGS_URL}/logs"
-papertrail: papertrail -f
+papertrail: papertrail -f -d 1 ${DRAIN_TOKEN}
 EOF
 set -x
 forego start -f tmp/Procfile
